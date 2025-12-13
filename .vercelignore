@@ -1,0 +1,13 @@
+node_modules
+.env
+.env.local
+secrets/
+*.log
+.DS_Store
+uploads/
+
+# Ignore all API route files except index.js (they're Express routes, not Vercel functions)
+api/*.js
+!api/index.js
+api/cron/
+
