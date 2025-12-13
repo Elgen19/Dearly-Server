@@ -42,25 +42,48 @@ app.use(helmet({
 
 // Security: Configure CORS - restrict to production domain in production
 const allowedOrigins = NODE_ENV === 'production' 
-  ? (process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : [])
+  ? (process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim()).filter(origin => origin) : [])
   : ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:5173', 'http://127.0.0.1:3000'];
 
 if (NODE_ENV === 'production' && allowedOrigins.length === 0) {
   console.error('❌ CRITICAL: ALLOWED_ORIGINS environment variable must be set in production');
+  console.error('   Example: ALLOWED_ORIGINS=https://dearly-tau.vercel.app,https://www.dearly-tau.vercel.app');
   process.exit(1);
+}
+
+// Log allowed origins in production for debugging
+if (NODE_ENV === 'production') {
+  console.log('🌐 CORS Allowed Origins:', allowedOrigins);
 }
 
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) !== -1 || NODE_ENV === 'development') {
+    if (!origin) {
+      return callback(null, true);
+    }
+    
+    // Normalize origin (remove trailing slash)
+    const normalizedOrigin = origin.replace(/\/$/, '');
+    
+    // Check if origin is in allowed list
+    const isAllowed = allowedOrigins.some(allowed => {
+      const normalizedAllowed = allowed.replace(/\/$/, '');
+      return normalizedOrigin === normalizedAllowed;
+    });
+    
+    if (isAllowed || NODE_ENV === 'development') {
       callback(null, true);
     } else {
-      callback(new Error('Not allowed by CORS'));
+      console.warn(`⚠️ CORS blocked origin: ${origin}`);
+      console.warn(`   Allowed origins: ${allowedOrigins.join(', ')}`);
+      callback(new Error(`Not allowed by CORS: ${origin}`));
     }
   },
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(express.json()); // Express 5.x has built-in JSON parsing
