@@ -45,17 +45,18 @@ const allowedOrigins = NODE_ENV === 'production'
   ? (process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim()).filter(origin => origin) : [])
   : ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:5173', 'http://127.0.0.1:3000'];
 
+// Add default production origin if not set (for backward compatibility)
 if (NODE_ENV === 'production' && allowedOrigins.length === 0) {
-  console.error('❌ CRITICAL: ALLOWED_ORIGINS environment variable must be set in production');
-  console.error('   Example: ALLOWED_ORIGINS=https://dearly-tau.vercel.app,https://www.dearly-tau.vercel.app');
-  process.exit(1);
+  console.warn('⚠️ WARNING: ALLOWED_ORIGINS environment variable not set in production');
+  console.warn('   Defaulting to: https://dearly-tau.vercel.app');
+  console.warn('   Please set ALLOWED_ORIGINS in Vercel environment variables');
+  allowedOrigins.push('https://dearly-tau.vercel.app');
 }
 
-// Log allowed origins in production for debugging
-if (NODE_ENV === 'production') {
-  console.log('🌐 CORS Allowed Origins:', allowedOrigins);
-}
+// Log allowed origins for debugging
+console.log('🌐 CORS Allowed Origins:', allowedOrigins.length > 0 ? allowedOrigins : 'None (will allow all in dev)');
 
+// CORS configuration with explicit preflight handling
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
@@ -63,12 +64,12 @@ app.use(cors({
       return callback(null, true);
     }
     
-    // Normalize origin (remove trailing slash)
-    const normalizedOrigin = origin.replace(/\/$/, '');
+    // Normalize origin (remove trailing slash and protocol variations)
+    const normalizedOrigin = origin.replace(/\/$/, '').toLowerCase();
     
-    // Check if origin is in allowed list
+    // Check if origin is in allowed list (case-insensitive)
     const isAllowed = allowedOrigins.some(allowed => {
-      const normalizedAllowed = allowed.replace(/\/$/, '');
+      const normalizedAllowed = allowed.replace(/\/$/, '').toLowerCase();
       return normalizedOrigin === normalizedAllowed;
     });
     
@@ -82,8 +83,18 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  exposedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'X-Requested-With',
+    'Accept',
+    'Origin',
+    'Access-Control-Request-Method',
+    'Access-Control-Request-Headers'
+  ],
+  exposedHeaders: ['Content-Type', 'Authorization'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
 }));
 
 app.use(express.json()); // Express 5.x has built-in JSON parsing
