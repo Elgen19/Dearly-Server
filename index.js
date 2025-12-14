@@ -22,15 +22,22 @@ require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const NODE_ENV = process.env.NODE_ENV || 'development';
+// Vercel sets VERCEL=1, so check for that too. Also check if we're in a serverless environment
+const NODE_ENV = process.env.VERCEL === '1' || process.env.VERCEL_ENV === 'production' 
+  ? 'production' 
+  : (process.env.NODE_ENV || 'development');
 
 // Security: Validate required environment variables
+// Don't exit in serverless functions - just log errors
 const requiredEnvVars = ['FIREBASE_PROJECT_ID', 'FIREBASE_PRIVATE_KEY', 'FIREBASE_CLIENT_EMAIL', 'FIREBASE_DATABASE_URL'];
 if (NODE_ENV === 'production') {
   const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
   if (missingVars.length > 0) {
     console.error('❌ CRITICAL: Missing required environment variables:', missingVars.join(', '));
-    process.exit(1);
+    // Don't exit in serverless functions - Vercel will handle the error
+    if (process.env.VERCEL !== '1') {
+      process.exit(1);
+    }
   }
 }
 
@@ -135,6 +142,25 @@ if (NODE_ENV === 'development') {
   console.log('  - POST /api/auth/save-google-user');
   console.log('  - GET /api/auth/check-verification/:userId');
 }
+
+// Global error handler to prevent crashes
+app.use((err, req, res, next) => {
+  console.error('❌ Unhandled error:', err);
+  res.status(err.status || 500).json({
+    success: false,
+    error: err.message || 'Internal server error',
+    ...(NODE_ENV === 'development' && { stack: err.stack })
+  });
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    error: 'Route not found',
+    path: req.path
+  });
+});
 
 // Export app for Vercel serverless functions
 // Only start server if not in Vercel environment
