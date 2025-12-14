@@ -59,29 +59,34 @@ if (NODE_ENV === 'production' && allowedOrigins.length === 0) {
 console.log('🌐 CORS Allowed Origins:', allowedOrigins.length > 0 ? allowedOrigins : 'None (will allow all in dev)');
 
 // Explicit OPTIONS handler for preflight requests (must be before CORS middleware)
-app.options('*', (req, res) => {
-  const origin = req.headers.origin;
-  if (!origin) {
-    return res.status(204).end();
+// Use middleware instead of app.options('*') since Express 5.x doesn't support wildcard
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    const origin = req.headers.origin;
+    if (!origin) {
+      return res.status(204).end();
+    }
+    
+    const normalizedOrigin = origin.replace(/\/$/, '').toLowerCase();
+    const isAllowed = allowedOrigins.some(allowed => {
+      const normalizedAllowed = allowed.replace(/\/$/, '').toLowerCase();
+      return normalizedOrigin === normalizedAllowed;
+    }) || NODE_ENV === 'development';
+    
+    if (isAllowed) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Access-Control-Request-Method, Access-Control-Request-Headers');
+      res.header('Access-Control-Max-Age', '86400'); // 24 hours
+      console.log(`✅ OPTIONS preflight allowed for origin: ${origin} on ${req.path}`);
+      return res.status(204).end();
+    } else {
+      console.warn(`⚠️ OPTIONS preflight blocked for origin: ${origin} on ${req.path}`);
+      return res.status(403).end();
+    }
   }
-  
-  const normalizedOrigin = origin.replace(/\/$/, '').toLowerCase();
-  const isAllowed = allowedOrigins.some(allowed => {
-    const normalizedAllowed = allowed.replace(/\/$/, '').toLowerCase();
-    return normalizedOrigin === normalizedAllowed;
-  }) || NODE_ENV === 'development';
-  
-  if (isAllowed) {
-    res.header('Access-Control-Allow-Origin', origin);
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Access-Control-Request-Method, Access-Control-Request-Headers');
-    res.header('Access-Control-Max-Age', '86400'); // 24 hours
-    console.log(`✅ OPTIONS preflight allowed for origin: ${origin}`);
-  } else {
-    console.warn(`⚠️ OPTIONS preflight blocked for origin: ${origin}`);
-  }
-  res.status(204).end();
+  next();
 });
 
 // Security: Add security headers (after CORS setup)
