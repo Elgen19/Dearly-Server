@@ -2,21 +2,21 @@ const express = require("express");
 const cors = require("cors");
 const path = require("path");
 const helmet = require("helmet");
-const emailRoutes = require("./api/send-email");
-const dateInvitationsRoutes = require("./api/date-invitations");
-const emailVerificationRoutes = require("./api/email-verification");
-const authRoutes = require("./api/auth");
-const receiverDataRoutes = require("./api/receiver-data");
-const lettersRoutes = require("./api/letters");
-const musicUploadRoutes = require("./api/music-upload");
-const letterEmailRoutes = require("./api/letter-email");
-const voiceUploadRoutes = require("./api/voice-upload");
-const audioProxyRoutes = require("./api/audio-proxy");
-const notificationsRoutes = require("./api/notifications");
-const gamePrizesRoutes = require("./api/game-prizes");
-const quizzesRoutes = require("./api/quizzes");
-const gamesRoutes = require("./api/games");
-const receiverAccountsRoutes = require("./api/receiver-accounts");
+const emailRoutes = require("./routes/send-email");
+const dateInvitationsRoutes = require("./routes/date-invitations");
+const emailVerificationRoutes = require("./routes/email-verification");
+const authRoutes = require("./routes/auth");
+const receiverDataRoutes = require("./routes/receiver-data");
+const lettersRoutes = require("./routes/letters");
+const musicUploadRoutes = require("./routes/music-upload");
+const letterEmailRoutes = require("./routes/letter-email");
+const voiceUploadRoutes = require("./routes/voice-upload");
+const audioProxyRoutes = require("./routes/audio-proxy");
+const notificationsRoutes = require("./routes/notifications");
+const gamePrizesRoutes = require("./routes/game-prizes");
+const quizzesRoutes = require("./routes/quizzes");
+const gamesRoutes = require("./routes/games");
+const receiverAccountsRoutes = require("./routes/receiver-accounts");
 const { initializeEmailScheduler } = require("./jobs/emailScheduler");
 require('dotenv').config();
 
@@ -105,7 +105,7 @@ app.use("/api/voice-upload", voiceUploadRoutes);
 app.use("/api/audio-proxy", audioProxyRoutes);
 // Security: Disable debug/test endpoints in production
 if (NODE_ENV === 'development') {
-  const pdfTestRoutes = require("./api/pdf-test");
+  const pdfTestRoutes = require("./routes/pdf-test");
   app.use("/api/pdf-test", pdfTestRoutes);
 }
 app.use("/api/notifications", notificationsRoutes);
@@ -114,7 +114,7 @@ app.use("/api/quizzes", quizzesRoutes);
 app.use("/api/games", gamesRoutes);
 app.use("/api/receiver-accounts", receiverAccountsRoutes);
 
-// Cron job endpoint (handled by Express, not separate Vercel function)
+// Cron job endpoint (can be called via Express or Vercel Cron)
 const emailSchedulerHandler = require("./api/cron/email-scheduler");
 app.get("/api/cron/email-scheduler", emailSchedulerHandler);
 

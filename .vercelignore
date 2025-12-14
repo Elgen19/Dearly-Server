@@ -6,8 +6,8 @@ secrets/
 .DS_Store
 uploads/
 
-# Note: API route files (api/*.js) are NOT ignored because they're required by index.js
-# They're Express routes, not separate Vercel functions, so they need to be included
-# Only ignore the cron directory if it's not needed (but we need email-scheduler.js)
-# api/cron/email-scheduler.js is needed for the cron endpoint
+# Note: 
+# - api/index.js and api/cron/email-scheduler.js are serverless functions (included)
+# - routes/ directory contains Express routes (included, but not auto-detected as functions)
+# - configs/, middleware/, jobs/ are required by the app (included)
 
