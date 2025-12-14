@@ -41,13 +41,8 @@ if (NODE_ENV === 'production') {
   }
 }
 
-// Security: Add security headers
-app.use(helmet({
-  contentSecurityPolicy: NODE_ENV === 'production' ? undefined : false, // Disable in dev for easier debugging
-  crossOriginEmbedderPolicy: false // Allow embedding if needed
-}));
-
 // Security: Configure CORS - restrict to production domain in production
+// MUST be before helmet to ensure CORS headers are set
 const allowedOrigins = NODE_ENV === 'production' 
   ? (process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim()).filter(origin => origin) : [])
   : ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:5173', 'http://127.0.0.1:3000'];
@@ -63,7 +58,50 @@ if (NODE_ENV === 'production' && allowedOrigins.length === 0) {
 // Log allowed origins for debugging
 console.log('🌐 CORS Allowed Origins:', allowedOrigins.length > 0 ? allowedOrigins : 'None (will allow all in dev)');
 
+// Explicit OPTIONS handler for preflight requests (must be before CORS middleware)
+app.options('*', (req, res) => {
+  const origin = req.headers.origin;
+  if (!origin) {
+    return res.status(204).end();
+  }
+  
+  const normalizedOrigin = origin.replace(/\/$/, '').toLowerCase();
+  const isAllowed = allowedOrigins.some(allowed => {
+    const normalizedAllowed = allowed.replace(/\/$/, '').toLowerCase();
+    return normalizedOrigin === normalizedAllowed;
+  }) || NODE_ENV === 'development';
+  
+  if (isAllowed) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Access-Control-Request-Method, Access-Control-Request-Headers');
+    res.header('Access-Control-Max-Age', '86400'); // 24 hours
+    console.log(`✅ OPTIONS preflight allowed for origin: ${origin}`);
+  } else {
+    console.warn(`⚠️ OPTIONS preflight blocked for origin: ${origin}`);
+  }
+  res.status(204).end();
+});
+
+// Security: Add security headers (after CORS setup)
+app.use(helmet({
+  contentSecurityPolicy: NODE_ENV === 'production' ? undefined : false, // Disable in dev for easier debugging
+  crossOriginEmbedderPolicy: false, // Allow embedding if needed
+  crossOriginResourcePolicy: { policy: "cross-origin" } // Allow cross-origin requests
+}));
+
 // CORS configuration with explicit preflight handling
+// Add logging middleware
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (req.method === 'OPTIONS' || origin) {
+    console.log(`🌐 ${req.method} ${req.path} - Origin: ${origin || 'none'}`);
+  }
+  next();
+});
+
+// Apply CORS middleware
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
@@ -84,6 +122,7 @@ app.use(cors({
       callback(null, true);
     } else {
       console.warn(`⚠️ CORS blocked origin: ${origin}`);
+      console.warn(`   Normalized: ${normalizedOrigin}`);
       console.warn(`   Allowed origins: ${allowedOrigins.join(', ')}`);
       callback(new Error(`Not allowed by CORS: ${origin}`));
     }
@@ -103,6 +142,24 @@ app.use(cors({
   preflightContinue: false,
   optionsSuccessStatus: 204
 }));
+
+// Additional CORS headers middleware (ensures headers are set even if cors middleware fails)
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    const normalizedOrigin = origin.replace(/\/$/, '').toLowerCase();
+    const isAllowed = allowedOrigins.some(allowed => {
+      const normalizedAllowed = allowed.replace(/\/$/, '').toLowerCase();
+      return normalizedOrigin === normalizedAllowed;
+    }) || NODE_ENV === 'development';
+    
+    if (isAllowed) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+    }
+  }
+  next();
+});
 
 app.use(express.json()); // Express 5.x has built-in JSON parsing
 
@@ -135,6 +192,21 @@ app.use("/api/receiver-accounts", receiverAccountsRoutes);
 // Cron job endpoint (can be called via Express or Vercel Cron)
 const emailSchedulerHandler = require("./api/cron/email-scheduler");
 app.get("/api/cron/email-scheduler", emailSchedulerHandler);
+
+// Root route - API information
+app.get("/", (req, res) => {
+  res.json({
+    success: true,
+    message: "Dearly API Server",
+    version: "1.0.0",
+    endpoints: {
+      auth: "/api/auth",
+      receiverData: "/api/receiver-data",
+      letters: "/api/letters",
+      dateInvitations: "/api/date-invitations"
+    }
+  });
+});
 
 // Log registered routes for debugging (only in development)
 if (NODE_ENV === 'development') {
