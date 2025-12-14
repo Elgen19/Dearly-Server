@@ -219,7 +219,6 @@ router.get("/user/:userId", async (req, res) => {
   
   // Development mode - original handler
   try {
-  try {
     const { userId } = req.params;
 
     if (!userId) {
@@ -351,7 +350,6 @@ router.put("/user/:userId", async (req, res) => {
   }
   
   // Development mode - original handler
-  try {
   try {
     const { userId } = req.params;
     const { firstName, lastName } = req.body;
