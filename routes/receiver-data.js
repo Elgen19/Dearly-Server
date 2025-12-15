@@ -124,24 +124,59 @@ router.post("/:userId", async (req, res) => {
     };
 
     console.log(`💾 Attempting to save to Firebase: users/${userId}/receiver`);
+    console.log(`💾 Data to save:`, receiverData);
+    
     const receiverRef = db.ref(`users/${userId}/receiver`);
     
     try {
-      await receiverRef.set(receiverData);
-      console.log(`✅ Receiver data saved successfully for user ${userId}:`, receiverData);
+      // Use set() with Promise wrapper for better error handling
+      await new Promise((resolve, reject) => {
+        receiverRef.set(receiverData, (error) => {
+          if (error) {
+            console.error('❌ Firebase set() error:', error);
+            console.error('❌ Error code:', error.code);
+            console.error('❌ Error message:', error.message);
+            console.error('❌ Full error:', JSON.stringify(error, null, 2));
+            reject(error);
+          } else {
+            console.log(`✅ Firebase set() completed for user ${userId}`);
+            resolve();
+          }
+        });
+      });
+      
+      // Wait for write to propagate
+      await new Promise(resolve => setTimeout(resolve, 300));
       
       // Verify the save by reading it back
+      console.log(`🔍 Verifying save by reading back...`);
       const snapshot = await receiverRef.once("value");
       const savedData = snapshot.val();
-      console.log(`✅ Verified saved data:`, savedData);
       
-      return res.json({
-        success: true,
-        data: savedData || receiverData,
-        message: "Receiver data saved successfully",
-      });
+      if (savedData) {
+        console.log(`✅ Receiver data saved and verified for user ${userId}:`, savedData);
+        return res.json({
+          success: true,
+          data: savedData,
+          message: "Receiver data saved successfully",
+        });
+      } else {
+        console.warn(`⚠️ Data not found after save. This might be a timing issue.`);
+        // Return success anyway - the write might have succeeded but read is delayed
+        return res.json({
+          success: true,
+          data: receiverData,
+          message: "Receiver data save initiated (verification pending)",
+        });
+      }
     } catch (firebaseError) {
-      console.error('❌ Firebase error:', firebaseError);
+      console.error('❌ Firebase error during save:', firebaseError);
+      console.error('❌ Error code:', firebaseError.code);
+      console.error('❌ Error message:', firebaseError.message);
+      console.error('❌ Error details:', {
+        name: firebaseError.name,
+        stack: firebaseError.stack
+      });
       throw firebaseError;
     }
   } catch (error) {
