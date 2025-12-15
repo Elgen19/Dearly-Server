@@ -129,8 +129,10 @@ router.post("/:userId", async (req, res) => {
     const receiverRef = db.ref(`users/${userId}/receiver`);
     
     try {
-      // Use set() with Promise wrapper for better error handling
-      await new Promise((resolve, reject) => {
+      const saveStartTime = Date.now();
+      
+      // Use set() with Promise wrapper and timeout (10 seconds)
+      const savePromise = new Promise((resolve, reject) => {
         receiverRef.set(receiverData, (error) => {
           if (error) {
             console.error('❌ Firebase set() error:', error);
@@ -139,18 +141,60 @@ router.post("/:userId", async (req, res) => {
             console.error('❌ Full error:', JSON.stringify(error, null, 2));
             reject(error);
           } else {
-            console.log(`✅ Firebase set() completed for user ${userId}`);
+            console.log(`✅ Firebase set() completed for user ${userId} (took ${Date.now() - saveStartTime}ms)`);
             resolve();
           }
         });
       });
       
-      // Wait for write to propagate
-      await new Promise(resolve => setTimeout(resolve, 300));
+      // Add timeout wrapper (10 seconds)
+      let timeoutId;
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+          console.error(`⏱️ Firebase save operation timed out after 10 seconds for user: ${userId}`);
+          reject(new Error("Firebase database connection timeout. Please check your network connection and Firebase Realtime Database availability."));
+        }, 10000);
+      });
       
-      // Verify the save by reading it back
+      try {
+        await Promise.race([savePromise, timeoutPromise]);
+        clearTimeout(timeoutId);
+      } catch (raceError) {
+        clearTimeout(timeoutId);
+        throw raceError;
+      }
+      
+      // Wait for write to propagate
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Verify the save by reading it back (with timeout)
       console.log(`🔍 Verifying save by reading back...`);
-      const snapshot = await receiverRef.once("value");
+      const verifyStartTime = Date.now();
+      const verifyPromise = receiverRef.once("value");
+      let verifyTimeoutId;
+      const verifyTimeoutPromise = new Promise((_, reject) => {
+        verifyTimeoutId = setTimeout(() => {
+          console.warn(`⏱️ Firebase verification read timed out after 5 seconds`);
+          reject(new Error("Verification timeout"));
+        }, 5000);
+      });
+      
+      let snapshot;
+      try {
+        snapshot = await Promise.race([verifyPromise, verifyTimeoutPromise]);
+        clearTimeout(verifyTimeoutId);
+        console.log(`✅ Verification read completed (took ${Date.now() - verifyStartTime}ms)`);
+      } catch (verifyError) {
+        clearTimeout(verifyTimeoutId);
+        // If verification fails, still return success - the write might have succeeded
+        console.warn(`⚠️ Verification read failed, but save may have succeeded:`, verifyError.message);
+        return res.json({
+          success: true,
+          data: receiverData,
+          message: "Receiver data save completed (verification timeout - data may still be saved)",
+        });
+      }
+      
       const savedData = snapshot.val();
       
       if (savedData) {
