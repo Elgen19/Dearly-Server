@@ -41,130 +41,64 @@ if (NODE_ENV === 'production') {
   }
 }
 
-// Security: Configure CORS - restrict to production domain in production
-// MUST be before helmet to ensure CORS headers are set
+// Security: Configure CORS - SIMPLIFIED for Vercel serverless
 const allowedOrigins = NODE_ENV === 'production' 
   ? (process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim()).filter(origin => origin) : [])
   : ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:5173', 'http://127.0.0.1:3000'];
 
-// Add default production origin if not set (for backward compatibility)
+// Add default production origin if not set
 if (NODE_ENV === 'production' && allowedOrigins.length === 0) {
-  console.warn('⚠️ WARNING: ALLOWED_ORIGINS environment variable not set in production');
-  console.warn('   Defaulting to: https://dearly-tau.vercel.app');
-  console.warn('   Please set ALLOWED_ORIGINS in Vercel environment variables');
   allowedOrigins.push('https://dearly-tau.vercel.app');
 }
 
-// Log allowed origins for debugging
-console.log('🌐 CORS Allowed Origins:', allowedOrigins.length > 0 ? allowedOrigins : 'None (will allow all in dev)');
+console.log('🌐 CORS Allowed Origins:', allowedOrigins);
 
-// Explicit OPTIONS handler for preflight requests (must be before CORS middleware)
-// Use middleware instead of app.options('*') since Express 5.x doesn't support wildcard
+// Simple CORS middleware - handles all requests including OPTIONS
 app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  
+  // Handle OPTIONS preflight requests
   if (req.method === 'OPTIONS') {
-    const origin = req.headers.origin;
-    if (!origin) {
-      return res.status(204).end();
+    if (origin) {
+      const normalizedOrigin = origin.replace(/\/$/, '').toLowerCase();
+      const isAllowed = allowedOrigins.some(allowed => {
+        return normalizedOrigin === allowed.replace(/\/$/, '').toLowerCase();
+      }) || NODE_ENV === 'development';
+      
+      if (isAllowed) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+        res.setHeader('Access-Control-Max-Age', '86400');
+        return res.status(204).end();
+      }
     }
-    
-    const normalizedOrigin = origin.replace(/\/$/, '').toLowerCase();
-    const isAllowed = allowedOrigins.some(allowed => {
-      const normalizedAllowed = allowed.replace(/\/$/, '').toLowerCase();
-      return normalizedOrigin === normalizedAllowed;
-    }) || NODE_ENV === 'development';
-    
-    if (isAllowed) {
-      res.header('Access-Control-Allow-Origin', origin);
-      res.header('Access-Control-Allow-Credentials', 'true');
-      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Access-Control-Request-Method, Access-Control-Request-Headers');
-      res.header('Access-Control-Max-Age', '86400'); // 24 hours
-      console.log(`✅ OPTIONS preflight allowed for origin: ${origin} on ${req.path}`);
-      return res.status(204).end();
-    } else {
-      console.warn(`⚠️ OPTIONS preflight blocked for origin: ${origin} on ${req.path}`);
-      return res.status(403).end();
-    }
+    return res.status(204).end();
   }
-  next();
-});
-
-// Security: Add security headers (after CORS setup)
-app.use(helmet({
-  contentSecurityPolicy: NODE_ENV === 'production' ? undefined : false, // Disable in dev for easier debugging
-  crossOriginEmbedderPolicy: false, // Allow embedding if needed
-  crossOriginResourcePolicy: { policy: "cross-origin" } // Allow cross-origin requests
-}));
-
-// CORS configuration with explicit preflight handling
-// Add logging middleware
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (req.method === 'OPTIONS' || origin) {
-    console.log(`🌐 ${req.method} ${req.path} - Origin: ${origin || 'none'}`);
-  }
-  next();
-});
-
-// Apply CORS middleware
-app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) {
-      return callback(null, true);
-    }
-    
-    // Normalize origin (remove trailing slash and protocol variations)
-    const normalizedOrigin = origin.replace(/\/$/, '').toLowerCase();
-    
-    // Check if origin is in allowed list (case-insensitive)
-    const isAllowed = allowedOrigins.some(allowed => {
-      const normalizedAllowed = allowed.replace(/\/$/, '').toLowerCase();
-      return normalizedOrigin === normalizedAllowed;
-    });
-    
-    if (isAllowed || NODE_ENV === 'development') {
-      callback(null, true);
-    } else {
-      console.warn(`⚠️ CORS blocked origin: ${origin}`);
-      console.warn(`   Normalized: ${normalizedOrigin}`);
-      console.warn(`   Allowed origins: ${allowedOrigins.join(', ')}`);
-      callback(new Error(`Not allowed by CORS: ${origin}`));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: [
-    'Content-Type', 
-    'Authorization', 
-    'X-Requested-With',
-    'Accept',
-    'Origin',
-    'Access-Control-Request-Method',
-    'Access-Control-Request-Headers'
-  ],
-  exposedHeaders: ['Content-Type', 'Authorization'],
-  preflightContinue: false,
-  optionsSuccessStatus: 204
-}));
-
-// Additional CORS headers middleware (ensures headers are set even if cors middleware fails)
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
+  
+  // Handle regular requests - set CORS headers
   if (origin) {
     const normalizedOrigin = origin.replace(/\/$/, '').toLowerCase();
     const isAllowed = allowedOrigins.some(allowed => {
-      const normalizedAllowed = allowed.replace(/\/$/, '').toLowerCase();
-      return normalizedOrigin === normalizedAllowed;
+      return normalizedOrigin === allowed.replace(/\/$/, '').toLowerCase();
     }) || NODE_ENV === 'development';
     
     if (isAllowed) {
-      res.header('Access-Control-Allow-Origin', origin);
-      res.header('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
     }
   }
+  
   next();
 });
+
+// Security: Add security headers (configured to not interfere with CORS)
+app.use(helmet({
+  contentSecurityPolicy: false, // Disable to avoid conflicts
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: false
+}));
 
 app.use(express.json()); // Express 5.x has built-in JSON parsing
 
