@@ -6,8 +6,9 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js"
+    "start": "node index-standalone.js",
+    "start:vercel": "node index.js",
+    "dev": "nodemon index-standalone.js"
   },
   "keywords": [],
   "author": "",
