@@ -27,20 +27,7 @@ const NODE_ENV = process.env.VERCEL === '1' || process.env.VERCEL_ENV === 'produ
   ? 'production' 
   : (process.env.NODE_ENV || 'development');
 
-// Security: Validate required environment variables
-// Don't exit in serverless functions - just log errors
-const requiredEnvVars = ['FIREBASE_PROJECT_ID', 'FIREBASE_PRIVATE_KEY', 'FIREBASE_CLIENT_EMAIL', 'FIREBASE_DATABASE_URL'];
-if (NODE_ENV === 'production') {
-  const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
-  if (missingVars.length > 0) {
-    console.error('❌ CRITICAL: Missing required environment variables:', missingVars.join(', '));
-    // Don't exit in serverless functions - Vercel will handle the error
-    if (process.env.VERCEL !== '1') {
-      process.exit(1);
-    }
-  }
-}
-
+// CORS MUST be the very first middleware - before anything else
 // Security: Configure CORS - SIMPLIFIED for Vercel serverless
 const allowedOrigins = NODE_ENV === 'production' 
   ? (process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim()).filter(origin => origin) : [])
@@ -54,8 +41,14 @@ if (NODE_ENV === 'production' && allowedOrigins.length === 0) {
 console.log('🌐 CORS Allowed Origins:', allowedOrigins);
 
 // Simple CORS middleware - handles all requests including OPTIONS
+// MUST be first middleware to catch all requests
 app.use((req, res, next) => {
   const origin = req.headers.origin;
+  
+  // Log all requests for debugging
+  if (req.method === 'OPTIONS' || origin) {
+    console.log(`🔍 ${req.method} ${req.path} - Origin: ${origin || 'none'}`);
+  }
   
   // Handle OPTIONS preflight requests
   if (req.method === 'OPTIONS') {
@@ -71,10 +64,15 @@ app.use((req, res, next) => {
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
         res.setHeader('Access-Control-Max-Age', '86400');
+        console.log(`✅ OPTIONS preflight allowed for: ${origin}`);
         return res.status(204).end();
+      } else {
+        console.warn(`⚠️ OPTIONS preflight blocked for: ${origin}`);
       }
     }
-    return res.status(204).end();
+    // Always respond to OPTIONS, even without origin
+    res.status(204).end();
+    return;
   }
   
   // Handle regular requests - set CORS headers
@@ -92,6 +90,20 @@ app.use((req, res, next) => {
   
   next();
 });
+
+// Security: Validate required environment variables
+// Don't exit in serverless functions - just log errors
+const requiredEnvVars = ['FIREBASE_PROJECT_ID', 'FIREBASE_PRIVATE_KEY', 'FIREBASE_CLIENT_EMAIL', 'FIREBASE_DATABASE_URL'];
+if (NODE_ENV === 'production') {
+  const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+  if (missingVars.length > 0) {
+    console.error('❌ CRITICAL: Missing required environment variables:', missingVars.join(', '));
+    // Don't exit in serverless functions - Vercel will handle the error
+    if (process.env.VERCEL !== '1') {
+      process.exit(1);
+    }
+  }
+}
 
 // Security: Add security headers (configured to not interfere with CORS)
 app.use(helmet({
