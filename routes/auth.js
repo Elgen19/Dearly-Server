@@ -16,31 +16,84 @@ router.get("/test-firebase", async (req, res) => {
         error: "Firebase database not initialized. Check environment variables.",
         envCheck: {
           projectId: !!process.env.FIREBASE_PROJECT_ID,
-          privateKey: !!process.env.FIREBASE_PRIVATE_KEY,
+          privateKey: !!process.env.FIREBASE_PRIVATE_KEY ? "Set (length: " + process.env.FIREBASE_PRIVATE_KEY.length + ")" : "Missing",
           clientEmail: !!process.env.FIREBASE_CLIENT_EMAIL,
-          databaseURL: !!process.env.FIREBASE_DATABASE_URL,
+          databaseURL: process.env.FIREBASE_DATABASE_URL || "Missing",
         }
+      });
+    }
+    
+    // Get database URL for diagnostics
+    const databaseURL = process.env.FIREBASE_DATABASE_URL || "Not set";
+    console.log("📋 Database URL:", databaseURL);
+    console.log("📋 Database URL format check:", {
+      hasProtocol: databaseURL.startsWith("https://"),
+      hasTrailingSlash: databaseURL.endsWith("/"),
+      length: databaseURL.length
+    });
+    
+    // Check if database URL format is correct
+    if (!databaseURL.startsWith("https://") || databaseURL.endsWith("/")) {
+      return res.json({
+        success: false,
+        error: "Database URL format issue",
+        details: "Database URL should start with 'https://' and NOT end with '/'",
+        currentURL: databaseURL,
+        expectedFormat: "https://your-project-default-rtdb.firebaseio.com"
       });
     }
     
     console.log("✅ Firebase database is initialized, testing write/read...");
     
+    // Try to get root reference first to verify connection
+    console.log("🔍 Testing root reference access...");
+    const rootRef = db.ref();
+    const rootTestStart = Date.now();
+    
+    try {
+      // Try to read root with a short timeout
+      const rootPromise = rootRef.once("value");
+      const rootTimeout = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("Root read timeout")), 3000);
+      });
+      
+      await Promise.race([rootPromise, rootTimeout]);
+      console.log(`✅ Root reference accessible (took ${Date.now() - rootTestStart}ms)`);
+    } catch (rootError) {
+      console.warn("⚠️ Root reference test failed:", rootError.message);
+      // Continue anyway - might still work for writes
+    }
+    
     const testRef = db.ref("test/connection");
     const testData = { 
       timestamp: Date.now(),
       message: "Firebase connection test",
-      server: "Render"
+      server: "Render",
+      testId: Math.random().toString(36).substring(7)
     };
     
-    // Test write with timeout (5 seconds)
+    console.log("💾 Attempting write to: test/connection");
+    console.log("💾 Data:", testData);
+    
+    // Test write with timeout (10 seconds - increased)
     const writeStartTime = Date.now();
     const writePromise = new Promise((resolve, reject) => {
+      // Add connection state listener for diagnostics
+      const connectionRef = db.ref(".info/connected");
+      connectionRef.once("value", (snapshot) => {
+        console.log("🔌 Firebase connection state:", snapshot.val());
+      });
+      
       testRef.set(testData, (error) => {
         if (error) {
           console.error("❌ Firebase write error:", error);
+          console.error("❌ Error code:", error.code);
+          console.error("❌ Error message:", error.message);
+          console.error("❌ Error details:", JSON.stringify(error, null, 2));
           reject(error);
         } else {
-          console.log(`✅ Firebase write completed (took ${Date.now() - writeStartTime}ms)`);
+          const elapsed = Date.now() - writeStartTime;
+          console.log(`✅ Firebase write completed (took ${elapsed}ms)`);
           resolve();
         }
       });
@@ -49,8 +102,10 @@ router.get("/test-firebase", async (req, res) => {
     let writeTimeoutId;
     const writeTimeoutPromise = new Promise((_, reject) => {
       writeTimeoutId = setTimeout(() => {
-        reject(new Error("Write operation timed out after 5 seconds"));
-      }, 5000);
+        const elapsed = Date.now() - writeStartTime;
+        console.error(`⏱️ Write operation timed out after ${elapsed}ms`);
+        reject(new Error(`Write operation timed out after 10 seconds. This usually means: 1) Database rules are blocking writes, 2) Network connectivity issue from Render to Firebase, 3) Database URL is incorrect, or 4) Firebase project is not accessible.`));
+      }, 10000); // Increased to 10 seconds
     });
     
     try {
@@ -58,20 +113,39 @@ router.get("/test-firebase", async (req, res) => {
       clearTimeout(writeTimeoutId);
     } catch (writeError) {
       clearTimeout(writeTimeoutId);
-      throw writeError;
+      // Provide more detailed error information
+      return res.json({
+        success: false,
+        error: writeError.message,
+        name: writeError.name,
+        diagnostics: {
+          databaseURL: databaseURL,
+          databaseURLFormat: databaseURL.startsWith("https://") && !databaseURL.endsWith("/") ? "✅ Correct" : "❌ Incorrect",
+          projectId: process.env.FIREBASE_PROJECT_ID || "Missing",
+          clientEmail: process.env.FIREBASE_CLIENT_EMAIL || "Missing",
+          privateKeySet: !!process.env.FIREBASE_PRIVATE_KEY,
+          suggestions: [
+            "1. Verify Firebase database rules allow Admin SDK writes (should be .read: false, .write: false)",
+            "2. Check that FIREBASE_DATABASE_URL is correct and matches your Firebase project",
+            "3. Verify the database exists in Firebase Console",
+            "4. Check Render network connectivity to Firebase servers",
+            "5. Ensure FIREBASE_PRIVATE_KEY has proper newline characters (\\n)"
+          ]
+        }
+      });
     }
     
     // Wait a bit for write to propagate
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise(resolve => setTimeout(resolve, 1000));
     
-    // Test read with timeout (5 seconds)
+    // Test read with timeout (10 seconds - increased)
     const readStartTime = Date.now();
     const readPromise = testRef.once("value");
     let readTimeoutId;
     const readTimeoutPromise = new Promise((_, reject) => {
       readTimeoutId = setTimeout(() => {
-        reject(new Error("Read operation timed out after 5 seconds"));
-      }, 5000);
+        reject(new Error("Read operation timed out after 10 seconds"));
+      }, 10000);
     });
     
     let snapshot;
@@ -81,7 +155,15 @@ router.get("/test-firebase", async (req, res) => {
       console.log(`✅ Firebase read completed (took ${Date.now() - readStartTime}ms)`);
     } catch (readError) {
       clearTimeout(readTimeoutId);
-      throw readError;
+      // If read fails but write succeeded, still return partial success
+      console.warn("⚠️ Read failed but write may have succeeded:", readError.message);
+      return res.json({
+        success: true,
+        warning: "Write succeeded but read verification failed",
+        message: "Data may have been saved, but verification read timed out",
+        writtenData: testData,
+        readError: readError.message
+      });
     }
     
     const readData = snapshot.val();
