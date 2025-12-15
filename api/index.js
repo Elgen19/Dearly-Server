@@ -9,52 +9,65 @@ if (!process.env.NODE_ENV) {
   process.env.NODE_ENV = 'production';
 }
 
+// Get allowed origins
+const getAllowedOrigins = () => {
+  if (process.env.ALLOWED_ORIGINS) {
+    return process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim());
+  }
+  return ['https://dearly-tau.vercel.app'];
+};
+
+// CORS handler function
+const handleCORS = (req, res) => {
+  const origin = req.headers.origin;
+  const allowedOrigins = getAllowedOrigins();
+  
+  // Check if origin is allowed (case-insensitive)
+  const isAllowed = origin && allowedOrigins.some(allowed => {
+    return origin.toLowerCase() === allowed.toLowerCase();
+  });
+  
+  if (isAllowed) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+    res.setHeader('Access-Control-Max-Age', '86400');
+  }
+  
+  // Handle OPTIONS preflight
+  if (req.method === 'OPTIONS') {
+    console.log(`✅ OPTIONS preflight handled for: ${origin || 'no origin'}`);
+    return res.status(204).end();
+  }
+  
+  return false; // Not an OPTIONS request, continue
+};
+
 try {
   const app = require('../index');
   
-  // Wrap the Express app for Vercel serverless functions
-  // This ensures CORS headers are set even if middleware doesn't run
-  module.exports = (req, res) => {
-    // Handle CORS at the function level (before Express)
-    const origin = req.headers.origin;
-    const allowedOrigins = process.env.ALLOWED_ORIGINS 
-      ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
-      : ['https://dearly-tau.vercel.app'];
-    
-    // Handle OPTIONS preflight
-    if (req.method === 'OPTIONS') {
-      if (origin && allowedOrigins.includes(origin)) {
-        res.setHeader('Access-Control-Allow-Origin', origin);
-        res.setHeader('Access-Control-Allow-Credentials', 'true');
-        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
-        res.setHeader('Access-Control-Max-Age', '86400');
-      }
-      return res.status(204).end();
+  // Export handler that wraps Express app
+  module.exports = async (req, res) => {
+    // Handle CORS FIRST, before anything else
+    const corsHandled = handleCORS(req, res);
+    if (corsHandled === false) {
+      // Not OPTIONS, continue to Express
+      return app(req, res);
     }
-    
-    // Set CORS headers for all requests
-    if (origin && allowedOrigins.includes(origin)) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
-    }
-    
-    // Pass to Express app
-    return app(req, res);
+    // OPTIONS was handled, response already sent
   };
 } catch (error) {
   console.error('❌ Failed to initialize Express app:', error);
   // Export a minimal error handler with CORS
   module.exports = (req, res) => {
-    const origin = req.headers.origin;
-    if (origin) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    handleCORS(req, res);
+    if (req.method !== 'OPTIONS') {
+      res.status(500).json({
+        success: false,
+        error: 'Server initialization failed',
+        message: error.message
+      });
     }
-    res.status(500).json({
-      success: false,
-      error: 'Server initialization failed',
-      message: error.message
-    });
   };
 }

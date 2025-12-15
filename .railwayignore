@@ -1,0 +1,12 @@
+# Railway ignore file (similar to .gitignore)
+node_modules/
+.env
+.env.local
+*.log
+uploads/
+temp/
+tmp/
+.DS_Store
+.vscode/
+.idea/
+

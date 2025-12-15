@@ -159,6 +159,16 @@ app.get("/", (req, res) => {
   });
 });
 
+// CORS test endpoint
+app.get("/api/test-cors", (req, res) => {
+  res.json({
+    success: true,
+    message: "CORS test successful",
+    origin: req.headers.origin,
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Log registered routes for debugging (only in development)
 if (NODE_ENV === 'development') {
   console.log('📋 Registered API routes:');
